@@ -1,0 +1,5 @@
+aiogram
+openai
+pypdf
+chromadb
+python-dotenv
