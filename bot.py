@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import logging
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -22,7 +23,7 @@ async def start(message: Message):
 @dp.message(F.document)
 async def handle_document(message: Message):
     doc = message.document
-    name = doc.file_name or ""
+    name = os.path.basename(doc.file_name or "")
     if not name.lower().endswith(".pdf"):
         await message.answer("Пока я принимаю только PDF.")
         return
@@ -33,8 +34,13 @@ async def handle_document(message: Message):
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, name)
         await bot.download(doc, destination=path)
-        chunks = load_pdf(path)
-    await message.answer(f"Готово: {len(chunks)} стр. с текстом.")
+        try:
+            pages = await asyncio.to_thread(load_pdf, path)
+        except Exception:
+            logging.exception("Не удалось прочитать PDF")
+            await message.answer("Не смог прочитать файл.")
+            return
+    await message.answer(f"Готово: {len(pages)} стр. с текстом.")
 
 
 async def main():
