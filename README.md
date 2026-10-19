@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/avatar.png" width="120" alt="LectureBot">
+  <img src="docs/фон github.png" width="1000" alt="LectureBot">
 </p>
 
 <h1 align="center">LectureBot</h1>
