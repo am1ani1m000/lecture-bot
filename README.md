@@ -2,9 +2,11 @@
   <img src="docs/фон github.png" width="1000" alt="LectureBot">
 </p>
 
-<h1 align="center">LectureBot</h1>
-
 ![Status](https://img.shields.io/badge/статус-в%20разработке-green)
+
+<h1 align="center"><img src="docs/title.svg" height="56" alt="LectureBot"></h1>
+
+
 
 Telegram-бот для работы с конспектами и лекциями. Отправляешь ему PDF, дальше можно получить выжимку, задать вопрос по тексту, сделать карточки или шпаргалку.
 Бот отвечает только по загруженным материалам и называет источник: файл и страницу. Если в лекции ответа нет, он так и скажет.
