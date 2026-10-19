@@ -4,12 +4,14 @@
 
 <h1 align="center">LectureBot</h1>
 
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![aiogram](https://img.shields.io/badge/aiogram-3-2CA5E0?logo=telegram&logoColor=blue)
+![Status](https://img.shields.io/badge/статус-в%20разработке-green)
+
 Telegram-бот для работы с конспектами и лекциями. Отправляешь ему PDF, дальше можно получить выжимку, задать вопрос по тексту, сделать карточки или шпаргалку.
 Бот отвечает только по загруженным материалам и называет источник: файл и страницу. Если в лекции ответа нет, он так и скажет.
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
-![aiogram](https://img.shields.io/badge/aiogram-3-2CA5E0?logo=telegram&logoColor=white)
-![Status](https://img.shields.io/badge/статус-в%20разработке-orange)
+
 
 ## ✨ Что делает бот
 
