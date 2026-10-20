@@ -4,7 +4,7 @@ from collections import defaultdict
 from sentence_transformers import SentenceTransformer, util
 
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-THRESHOLDS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+THRESHOLDS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
 PAIRS = [
     # (категория, текст A, текст B, ожидание)
