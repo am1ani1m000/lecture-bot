@@ -225,3 +225,4 @@ chroma_db/
 data/
 *.sqlite3
 .DS_Store
+pairs_results.csv
