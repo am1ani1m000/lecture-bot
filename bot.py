@@ -10,7 +10,10 @@ from dotenv import load_dotenv
 
 from documents import load_pdf
 import db
+
 import llm
+
+
 
 load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
@@ -74,6 +77,7 @@ async def handle_document(message: Message):
     await asyncio.to_thread(db.add_document, user_id, name, path, len(pages), 0)
     await message.answer(f"Загружено: {len(pages)} страниц")
 
+
 @dp.message(Command("summary"))
 async def summary(message: Message):
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
@@ -94,6 +98,7 @@ async def summary(message: Message):
         await asyncio.to_thread(db.save_cached, doc["doc_id"], "summary", text)
     for part in split_message(text):
         await message.answer(part)
+
     
 async def main():
     db.init_db()
