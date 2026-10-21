@@ -1,23 +1,40 @@
-"""Поиск по кускам лекций. Пока, что просто заглушка"""
+"""Поиск по кускам лекций в Chroma."""
 import logging
 
-# заводим свой журнал; __name__ подставит имя файла: "search"
+import chromadb
+
+import llm
+
 logger = logging.getLogger(__name__)
+
+CHROMA_PATH = "chroma_db"
+
+_client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+
+def _get_collection(user_id: int):
+    """Возвращает коллекцию пользователя, при первом обращении создаёт её."""
+    return _client.get_or_create_collection(
+        name=f"user_{user_id}",
+        configuration={"hnsw": {"space": "cosine"}},
+    )
 
 
 def add_chunks(chunks: list[dict], user_id: int, doc_id: int) -> None:
-    """Сохраняет куски в поисковую базу. Пока только пишет в лог."""
-    # запись в журнал: от кого пришли куски, какой документ, сколько кусков
-    logger.info("add chunks: user=%s doc=%s chunks=%s", user_id, doc_id, len(chunks))
+    """Считает эмбеддинги и сохраняет куски в Chroma (коллекция на пользователя)."""
+    if not chunks:
+        logger.warning("Пустой список кусков, doc_id=%s", doc_id)
+        return
 
-def search(question: str, user_id: int, k: int = 4, doc_id: int | None = None ) -> list[dict]:
-    """Возвращает k ближайших кусков. Пока один фиксированный кусок."""
-    # фальшивый кусок той же формы, что будет у настоящего
-    fake = {
-        "text": "Это заглушка: настоящий поиск скоро появится.",
-        "source": "example.pdf", # источник: имя файла
-        "page": 1,               # страница
-        "score": 0.0,            # оценка похожести на вопрос   
-    }
-    # кладём кусок в список и берём из него не больше k штук  
-    return [fake][:k]
+    texts = [c["text"] for c in chunks]
+    vectors = llm.embed(texts)
+
+    ids = [f"{doc_id}_{c['page']}_{c['chunk_id']}" for c in chunks]
+    metadatas = [
+        {"source": c["source"], "page": c["page"], "doc_id": doc_id}
+        for c in chunks
+    ]
+
+    collection = _get_collection(user_id)
+    collection.upsert(ids=ids, embeddings=vectors, documents=texts, metadatas=metadatas)
+    logger.info("Сохранено %d кусков, doc_id=%s", len(chunks), doc_id)
