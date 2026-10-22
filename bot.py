@@ -8,9 +8,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from dotenv import load_dotenv
 
-from documents import load_pdf
+from documents import load_pdf, chunk_pages
 import db
-
+import search 
 import llm
 
 
@@ -74,7 +74,11 @@ async def handle_document(message: Message):
         os.remove(path)
         await message.answer("Текст в файле не найден, пришли PDF с текстом.")
         return
-    await asyncio.to_thread(db.add_document, user_id, name, path, len(pages), 0)
+    chunks = chunk_pages(pages)
+    doc_id = await asyncio.to_thread(
+        db.add_document, user_id, name, path, len(pages), len(chunks)
+    )
+    await asyncio.to_thread(search.add_chunks, chunks, user_id, doc_id)
     await message.answer(f"Загружено: {len(pages)} страниц")
 
 
@@ -101,6 +105,7 @@ async def summary(message: Message):
 
     
 async def main():
+    logging.basicConfig(level=logging.INFO)
     db.init_db()
     await dp.start_polling(bot)
 
