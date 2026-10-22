@@ -95,6 +95,9 @@ async def summary(message: Message):
         try:
             pages = await asyncio.to_thread(load_pdf, doc["path"])
             text = await asyncio.to_thread(llm.ask, "", pages, "summary")
+        except llm.LLMBusyError:
+            await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+            return
         except Exception:
             logging.exception("Не удалось сделать выжимку")
             await message.answer("Не получилось сделать выжимку, попробуй позже.")
