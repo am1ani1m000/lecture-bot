@@ -95,6 +95,23 @@ def ask(question: str, chunks: list[dict], mode: str) -> str:
     prompt = prompt.replace("{question}", question)
     return _call_model(prompt)
 
+_embed_model = None  # SentenceTransformer, загружается при первом вызове embed()
+
+
+def _get_embed_model():
+    """Загружает модель эмбеддингов один раз, при первом вызове."""
+    global _embed_model
+    if _embed_model is None:
+        from sentence_transformers import SentenceTransformer  # тяжёлый импорт, только когда нужен
+
+        log.info("Загружаю модель эмбеддингов %s", config.EMBED_MODEL)
+        _embed_model = SentenceTransformer(config.EMBED_MODEL)
+    return _embed_model
+
+
 def embed(texts: list[str]) -> list[list[float]]:
-    """Возвращает векторы для списка текстов."""
-    return [[0.0] for _ in texts]
+    """Возвращает нормализованные векторы для списка текстов (локальная модель)."""
+    if not texts:
+        return []
+    vectors = _get_embed_model().encode(texts, normalize_embeddings=True)
+    return vectors.tolist()
