@@ -7,7 +7,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL")
 LLM_MODEL = os.getenv("LLM_MODEL")
-EMBED_MODEL = os.getenv("EMBED_MODEL")
+EMBED_MODEL = os.getenv("EMBED_MODEL") or "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
