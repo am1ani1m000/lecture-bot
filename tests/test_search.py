@@ -3,12 +3,8 @@ import unittest
 from unittest.mock import patch
 
 import chromadb
-from sentence_transformers import SentenceTransformer
 
-import llm
 import search
-
-MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 LECTURE = [
     {"text": "Рекурсия — это вызов функции самой себя.", "source": "recursion.pdf", "page": 1, "chunk_id": "0"},
@@ -21,19 +17,12 @@ OTHER = [
 
 
 class SearchTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        """Загружает модель один раз на все тесты класса."""
-        cls.model = SentenceTransformer(MODEL_NAME)
-
     def setUp(self):
-        """Перед каждым тестом: база в памяти и настоящая модель вместо заглушки."""
+        """Перед каждым тестом: база в памяти вместо базы на диске."""
         self.client = chromadb.EphemeralClient()
-        fake_embed = lambda texts: self.model.encode(texts).tolist()
-        for p in [patch.object(search, "_client", self.client),
-                  patch.object(llm, "embed", fake_embed)]:
-            p.start()
-            self.addCleanup(p.stop)
+        p = patch.object(search, "_client", self.client)
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         """После каждого теста: удалить все коллекции."""

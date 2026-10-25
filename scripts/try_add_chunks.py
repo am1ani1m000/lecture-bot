@@ -1,17 +1,10 @@
 """Ручная проверка add_chunks на настоящей модели эмбеддингов."""
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sentence_transformers import SentenceTransformer
-
-import llm
 import search
-
-model = SentenceTransformer(
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
-llm.embed = lambda texts: model.encode(texts).tolist()
 
 chunks = [
     {"text": "Рекурсия — это вызов функции самой себя.",
