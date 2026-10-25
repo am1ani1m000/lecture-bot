@@ -1,6 +1,7 @@
 <p align="center">
-  <img src="docs/фон github.png" width="1000" alt="LectureBot">
+  <img src="docs/image/banner.gif" alt="LectureBot" width="100%">
 </p>
+
 
 ![Status](https://img.shields.io/badge/статус-в%20разработке-green)
 
