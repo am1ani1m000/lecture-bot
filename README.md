@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/image/lecturebot-banner_1.gif" width="100%" alt="LectureBot: кидаешь лекцию в PDF, получаешь выжимку, флешкарты и шпоры">
+  <img src="docs/image/banner.gif" width="100%" alt="LectureBot: кидаешь лекцию в PDF, получаешь выжимку, флешкарты и шпоры">
 </p>
 
 <p align="center">
