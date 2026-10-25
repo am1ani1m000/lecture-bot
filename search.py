@@ -38,3 +38,37 @@ def add_chunks(chunks: list[dict], user_id: int, doc_id: int) -> None:
     collection = _get_collection(user_id)
     collection.upsert(ids=ids, embeddings=vectors, documents=texts, metadatas=metadatas)
     logger.info("Сохранено %d кусков, doc_id=%s", len(chunks), doc_id)
+
+
+def search(question: str, user_id: int, k: int = 4,
+           doc_id: int | None = None) -> list[dict]:
+    """Возвращает k ближайших кусков:
+    [{"text": str, "source": str, "page": int, "score": float}]."""
+    collection = _get_collection(user_id)
+    total = collection.count()
+    if total == 0:
+        return []
+
+    question_vector = llm.embed([question])[0]
+    where = {"doc_id": doc_id} if doc_id is not None else None
+
+    results = collection.query(
+        query_embeddings=[question_vector],
+        n_results=min(k, total),
+        where=where,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    found = []
+    for text, meta, distance in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    ):
+        found.append({
+            "text": text,
+            "source": meta["source"],
+            "page": meta["page"],
+            "score": round(1 - distance, 3),
+        })
+    return found
