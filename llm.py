@@ -99,13 +99,25 @@ _embed_model = None  # SentenceTransformer, загружается при пер
 
 
 def _get_embed_model():
-    """Загружает модель эмбеддингов один раз, при первом вызове."""
+    """Загружает модель эмбеддингов один раз: сначала из кэша, без сети."""
     global _embed_model
     if _embed_model is None:
         from sentence_transformers import SentenceTransformer  # тяжёлый импорт, только когда нужен
 
-        log.info("Загружаю модель эмбеддингов %s", config.EMBED_MODEL)
-        _embed_model = SentenceTransformer(config.EMBED_MODEL)
+        name = config.EMBED_MODEL
+        try:
+            # только из кэша ~/.cache/huggingface, без запросов к Hugging Face
+            _embed_model = SentenceTransformer(name, local_files_only=True)
+            log.info("Модель эмбеддингов %s загружена из кэша", name)
+        except Exception:
+            log.info("Модели %s нет в кэше, скачиваю (один раз)", name)
+            try:
+                _embed_model = SentenceTransformer(name)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Не удалось загрузить модель эмбеддингов '{name}'. "
+                    "Проверь EMBED_MODEL в .env и интернет при первом запуске."
+                ) from e
     return _embed_model
 
 
