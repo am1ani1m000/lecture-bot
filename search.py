@@ -44,6 +44,9 @@ def search(question: str, user_id: int, k: int = 4,
            doc_id: int | None = None) -> list[dict]:
     """Возвращает k ближайших кусков:
     [{"text": str, "source": str, "page": int, "score": float}]."""
+    if not question.strip():
+            return []
+    
     collection = _get_collection(user_id)
     total = collection.count()
     if total == 0:
