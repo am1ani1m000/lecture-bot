@@ -1,5 +1,6 @@
 """Поиск по кускам лекций в Chroma."""
 import logging
+from pathlib import Path
 
 import chromadb
 
@@ -7,14 +8,23 @@ import llm
 
 logger = logging.getLogger(__name__)
 
-CHROMA_PATH = "chroma_db"
+# путь от папки проекта, а не от того места, откуда запустили код
+CHROMA_PATH = Path(__file__).resolve().parent / "chroma_db"
 
-_client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+_client = None  # создаётся при первом обращении
+
+def _get_client():
+    """Создаёт клиента Chroma один раз, при первом вызове."""
+    global _client
+    if _client is None:
+        _client = chromadb.PersistentClient(path=str(CHROMA_PATH))
+    return _client
 
 
 def _get_collection(user_id: int):
     """Возвращает коллекцию пользователя, при первом обращении создаёт её."""
-    return _client.get_or_create_collection(
+    return _get_client().get_or_create_collection(
         name=f"user_{user_id}",
         configuration={"hnsw": {"space": "cosine"}},
     )
@@ -45,7 +55,7 @@ def search(question: str, user_id: int, k: int = 4,
     """Возвращает k ближайших кусков:
     [{"text": str, "source": str, "page": int, "score": float}]."""
     if not question.strip():
-            return []
+        return []
     
     collection = _get_collection(user_id)
     total = collection.count()
