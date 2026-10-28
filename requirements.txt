@@ -4,3 +4,4 @@ pypdf
 chromadb
 python-dotenv
 sentence-transformers
+fonttools
