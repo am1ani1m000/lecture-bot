@@ -55,8 +55,12 @@ async def handle_document(message: Message):
     if doc.file_size and doc.file_size > MAX_FILE_MB * 1024 * 1024:
         await message.answer(f"Файл больше {MAX_FILE_MB} МБ, такой я не скачаю.")
         return
-    await message.answer("Читаю файл...")
     user_id = message.from_user.id
+    docs = await asyncio.to_thread(db.list_documents, user_id)
+    if any(d["filename"] == name for d in docs):
+        await message.answer(f"Лекция «{name}» уже загружена.")
+        return
+    await message.answer("Читаю файл...")
     folder = os.path.join(DATA_DIR, str(user_id))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, name)
