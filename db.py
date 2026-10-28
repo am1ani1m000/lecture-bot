@@ -39,6 +39,7 @@ def init_db() -> None:
     with _connect() as conn:
         conn.executescript(SCHEMA)
 
+
 def add_document(user_id: int, filename: str, path: str,
                  pages: int, chunks: int) -> int:
     """Сохраняет документ и возвращает его doc_id."""
@@ -72,6 +73,7 @@ def get_document(doc_id: int) -> dict | None:
         ).fetchone()
     return dict(row) if row else None
 
+
 def get_cached(doc_id: int, kind: str) -> str | None:
     """Готовый результат (summary / cards / cheatsheet) или None."""
     with _connect() as conn:
@@ -90,8 +92,11 @@ def save_cached(doc_id: int, kind: str, text: str) -> None:
             "VALUES (?, ?, ?)",
             (doc_id, kind, text),
         )
+
+
 def delete_document(doc_id: int) -> None:
     """Удаляет документ и его кэш. Нужна, если загрузка сорвалась."""
     with _connect() as conn:
         conn.execute("DELETE FROM results WHERE doc_id = ?", (doc_id,))
         conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
+
