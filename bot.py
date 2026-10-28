@@ -118,6 +118,7 @@ async def summary(message: Message):
     for part in split_message(text):
         await message.answer(part)
 
+
 @dp.message(F.text & ~F.text.startswith("/"))
 async def answer_question(message: Message):
     question = message.text.strip()
@@ -126,11 +127,12 @@ async def answer_question(message: Message):
     if not chunks:
         await message.answer("Сначала пришли PDF с лекцией.")
         return
-    if chunks[0]["score"] < MIN_SCORE:
+    good = [c for c in chunks if c["score"] >= MIN_SCORE]
+    if not good:
         await message.answer("В материалах ответа не нашёл.")
         return
     try:
-        answer = await asyncio.to_thread(llm.ask, question, chunks, "answer")
+        answer = await asyncio.to_thread(llm.ask, question, good, "answer")
     except llm.LLMBusyError:
         await message.answer("Модель сейчас перегружена, попробуй через минуту.")
         return
@@ -138,8 +140,7 @@ async def answer_question(message: Message):
         logging.exception("Не удалось ответить на вопрос")
         await message.answer("Не получилось ответить, попробуй позже.")
         return
-    if "В материалах ответа не нашёл" not in answer:
-        good = [c for c in chunks if c["score"] >= MIN_SCORE]
+    if answer.strip().rstrip(".") != "В материалах ответа не нашёл":
         pages_by_file: dict[str, set[int]] = {}
         for c in good:
             pages_by_file.setdefault(c["source"], set()).add(c["page"])
