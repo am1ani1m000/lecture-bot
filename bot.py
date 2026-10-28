@@ -150,6 +150,7 @@ async def answer_question(message: Message):
     for part in split_message(answer):
         await message.answer(part)
 
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     db.init_db()
