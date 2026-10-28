@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 
-from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN
+from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN, TOP_K, MIN_SCORE
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
@@ -114,7 +114,37 @@ async def summary(message: Message):
     for part in split_message(text):
         await message.answer(part)
 
-    
+@dp.message(F.text & ~F.text.startswith("/"))
+async def answer_question(message: Message):
+    question = message.text.strip()
+    user_id = message.from_user.id
+    chunks = await asyncio.to_thread(search.search, question, user_id, TOP_K)
+    if not chunks:
+        await message.answer("Сначала пришли PDF с лекцией.")
+        return
+    if chunks[0]["score"] < MIN_SCORE:
+        await message.answer("В материалах ответа не нашёл.")
+        return
+    try:
+        answer = await asyncio.to_thread(llm.ask, question, chunks, "answer")
+    except llm.LLMBusyError:
+        await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+        return
+    except Exception:
+        logging.exception("Не удалось ответить на вопрос")
+        await message.answer("Не получилось ответить, попробуй позже.")
+        return
+    if "В материалах ответа не нашёл" not in answer:
+        good = [c for c in chunks if c["score"] >= MIN_SCORE]
+        pages_by_file: dict[str, set[int]] = {}
+        for c in good:
+            pages_by_file.setdefault(c["source"], set()).add(c["page"])
+        refs = [f"{name}, стр. {', '.join(map(str, sorted(pages)))}"
+                for name, pages in pages_by_file.items()]
+        answer += "\n\nИсточник: " + "; ".join(refs)
+    for part in split_message(answer):
+        await message.answer(part)
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     db.init_db()
