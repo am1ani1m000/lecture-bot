@@ -73,10 +73,19 @@ async def handle_document(message: Message):
         await message.answer("Текст в файле не найден, пришли PDF с текстом.")
         return
     chunks = chunk_pages(pages)
-    doc_id = await asyncio.to_thread(
-        db.add_document, user_id, name, path, len(pages), len(chunks)
-    )
-    await asyncio.to_thread(search.add_chunks, chunks, user_id, doc_id)
+    doc_id = None
+    try:
+        doc_id = await asyncio.to_thread(
+            db.add_document, user_id, name, path, len(pages), len(chunks)
+        )
+        await asyncio.to_thread(search.add_chunks, chunks, user_id, doc_id)
+    except Exception:
+        logging.exception("Не удалось сохранить документ")
+        if doc_id is not None:
+            await asyncio.to_thread(db.delete_document, doc_id)
+        os.remove(path)
+        await message.answer("Не смог сохранить лекцию, попробуй позже.")
+        return
     await message.answer(f"Загружено: {len(pages)} страниц")
 
 

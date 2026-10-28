@@ -90,3 +90,8 @@ def save_cached(doc_id: int, kind: str, text: str) -> None:
             "VALUES (?, ?, ?)",
             (doc_id, kind, text),
         )
+def delete_document(doc_id: int) -> None:
+    """Удаляет документ и его кэш. Нужна, если загрузка сорвалась."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM results WHERE doc_id = ?", (doc_id,))
+        conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
