@@ -66,6 +66,10 @@ class SearchTest(unittest.TestCase):
         search.add_chunks(LECTURE, user_id=1, doc_id=1)
         self.assertEqual(search.search("   ", user_id=1), [])
 
+    def test_empty_collection_returns_empty_list(self):
+        result = search.search("что такое рекурсия", user_id=999)
+        self.assertEqual(result, [])
+
 
 if __name__ == "__main__":
     unittest.main()
