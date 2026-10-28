@@ -2,11 +2,10 @@ import asyncio
 import os
 import logging
 
-from config import TG_MESSAGE_LIMIT
+from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
-from dotenv import load_dotenv
 
 from documents import load_pdf, chunk_pages
 import db
@@ -15,8 +14,7 @@ import llm
 
 
 
-load_dotenv()
-bot = Bot(token=os.getenv("BOT_TOKEN"))
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 def split_message(text: str, limit: int = TG_MESSAGE_LIMIT) -> list[str]:
@@ -54,8 +52,8 @@ async def handle_document(message: Message):
     if not name.lower().endswith(".pdf"):
         await message.answer("Пока я принимаю только PDF.")
         return
-    if doc.file_size and doc.file_size > 20 * 1024 * 1024:
-        await message.answer("Файл больше 20 МБ, такой я не скачаю.")
+    if doc.file_size and doc.file_size > MAX_FILE_MB * 1024 * 1024:
+        await message.answer(f"Файл больше {MAX_FILE_MB} МБ, такой я не скачаю.")
         return
     await message.answer("Читаю файл...")
     user_id = message.from_user.id
