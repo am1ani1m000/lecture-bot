@@ -9,8 +9,8 @@ from aiogram.types import (
     Message, CallbackQuery, BotCommand, ReplyKeyboardMarkup, KeyboardButton,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from documents import load_pdf, chunk_pages
 
+from documents import load_pdf, chunk_pages
 import db
 import search 
 import llm
