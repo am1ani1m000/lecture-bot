@@ -2,7 +2,12 @@ import os
 from pypdf import PdfReader
 
 
-def load_pdf(path):
+def load_pdf(path: str) -> list[dict]:
+    """Читает PDF и возвращает страницы с текстом.
+
+    Каждая страница: {"text": str, "source": str, "page": int}.
+    source это имя файла, page нумеруется с 1. Пустые страницы пропускаются.
+    """
     reader = PdfReader(path)
     source = os.path.basename(path)
     result = []
@@ -12,6 +17,7 @@ def load_pdf(path):
         if text:
             result.append({"text": text, "source": source, "page": number})
     return result
+
 
 
 def _cut_end(text: str, start: int, size: int, overlap: int) -> int:
@@ -30,6 +36,8 @@ def _next_start(text: str, end: int, overlap: int) -> int:
         return start
     space = text.find(" ", start, end)
     return space + 1 if space != -1 else start
+
+
 
 
 def chunk_pages(pages: list[dict], size: int = 800, overlap: int = 100) -> list[dict]:
