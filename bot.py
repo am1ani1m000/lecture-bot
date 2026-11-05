@@ -5,7 +5,10 @@ import logging
 from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN, TOP_K, MIN_SCORE
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import (
+    Message, CallbackQuery, BotCommand, ReplyKeyboardMarkup, KeyboardButton,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from documents import load_pdf, chunk_pages
 import db
@@ -37,6 +40,7 @@ def split_message(text: str, limit: int = TG_MESSAGE_LIMIT) -> list[str]:
         parts.append(current)
     return parts
 
+
 def pages_word(n: int) -> str:
     """Склоняет слово «страница» под число: 1 страница, 3 страницы, 5 страниц."""
     if n % 10 == 1 and n % 100 != 11:
@@ -45,9 +49,24 @@ def pages_word(n: int) -> str:
         return "страницы"
     return "страниц"
 
+BTN_SUMMARY = "📄 Выжимка"
+BTN_DOCS = "📚 Мои лекции"
+BTN_DELETE = "🗑 Удалить лекцию"
+
+MAIN_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text=BTN_SUMMARY), KeyboardButton(text=BTN_DOCS)],
+        [KeyboardButton(text=BTN_DELETE)],
+    ],
+    resize_keyboard=True,
+)
+
+
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Привет! Пришли PDF с лекцией.")
+    await message.answer(
+        "Привет! Пришли PDF с лекцией.", reply_markup=MAIN_KEYBOARD
+    )
 
 
 DATA_DIR = "data"
@@ -102,6 +121,7 @@ async def handle_document(message: Message):
 
 
 @dp.message(Command("summary"))
+@dp.message(F.text == BTN_SUMMARY)
 async def summary(message: Message):
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
     if not docs:
@@ -125,6 +145,102 @@ async def summary(message: Message):
         await asyncio.to_thread(db.save_cached, doc["doc_id"], "summary", text)
     for part in split_message(text):
         await message.answer(part)
+
+
+@dp.message(Command("docs"))
+@dp.message(F.text == BTN_DOCS)
+async def show_docs(message: Message):
+    """Список загруженных лекций пользователя."""
+    docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
+    if not docs:
+        await message.answer("Загруженных лекций нет")
+        return
+    lines = [f"{i}. {d['filename']}" for i, d in enumerate(docs, start=1)]
+    await message.answer("Твои лекции:\n" + "\n".join(lines))
+
+
+def delete_list_keyboard(docs: list[dict]):
+    """Кнопка на каждый документ, в callback_data только doc_id."""
+    builder = InlineKeyboardBuilder()
+    for d in docs:
+        builder.button(text=f"🗑 {d['filename']}", callback_data=f"del:{d['doc_id']}")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+@dp.message(Command("delete"))
+@dp.message(F.text == BTN_DELETE)
+async def delete_menu(message: Message):
+    """Показывает список лекций для удаления."""
+    docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
+    if not docs:
+        await message.answer("Загруженных лекций нет")
+        return
+    await message.answer(
+        "Какую лекцию удалить?", reply_markup=delete_list_keyboard(docs)
+    )
+
+async def get_own_document(callback: CallbackQuery) -> dict | None:
+    """Достаёт doc_id из callback_data и проверяет, что документ свой."""
+    doc_id = int(callback.data.split(":")[1])
+    doc = await asyncio.to_thread(db.get_document, doc_id)
+    if doc is None or doc["user_id"] != callback.from_user.id:
+        return None
+    return doc
+
+
+@dp.callback_query(F.data.startswith("del:"))
+async def ask_confirm(callback: CallbackQuery):
+    """Нажали на документ: спрашиваем подтверждение."""
+    doc = await get_own_document(callback)
+    if doc is None:
+        await callback.message.edit_text("Лекция не найдена.")
+        await callback.answer()
+        return
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Да", callback_data=f"yes:{doc['doc_id']}")
+    builder.button(text="Отмена", callback_data="cancel")
+    await callback.message.edit_text(
+        f"Удалить {doc['filename']}?", reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "cancel")
+async def cancel_delete(callback: CallbackQuery):
+    """Отмена: возвращаем список лекций."""
+    docs = await asyncio.to_thread(db.list_documents, callback.from_user.id)
+    if docs:
+        await callback.message.edit_text(
+            "Какую лекцию удалить?", reply_markup=delete_list_keyboard(docs)
+        )
+    else:
+        await callback.message.edit_text("Загруженных лекций нет")
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("yes:"))
+async def confirm_delete(callback: CallbackQuery):
+    """Подтвердили: удаляем куски в Chroma, запись в базе и PDF."""
+    doc = await get_own_document(callback)
+    if doc is None:
+        await callback.message.edit_text("Лекция не найдена.")
+        await callback.answer()
+        return
+    try:
+        await asyncio.to_thread(
+            search.delete_document, callback.from_user.id, doc["doc_id"]
+        )
+        await asyncio.to_thread(db.delete_document, doc["doc_id"])
+    except Exception:
+        logging.exception("Не удалось удалить документ")
+        await callback.message.edit_text("Не получилось удалить, попробуй позже.")
+        await callback.answer()
+        return
+    if os.path.exists(doc["path"]):
+        await asyncio.to_thread(os.remove, doc["path"])
+    await callback.message.edit_text(f"Удалено: {doc['filename']}")
+    await callback.answer()
 
 
 @dp.message(F.text & ~F.text.startswith("/"))
@@ -162,6 +278,12 @@ async def answer_question(message: Message):
 async def main():
     logging.basicConfig(level=logging.INFO)
     db.init_db()
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Начать и показать меню"),
+        BotCommand(command="summary", description="Выжимка лекции"),
+        BotCommand(command="docs", description="Мои лекции"),
+        BotCommand(command="delete", description="Удалить лекцию"),
+    ])
     await dp.start_polling(bot)
 
 

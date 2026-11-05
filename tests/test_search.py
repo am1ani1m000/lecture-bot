@@ -70,6 +70,18 @@ class SearchTest(unittest.TestCase):
         result = search.search("что такое рекурсия", user_id=999)
         self.assertEqual(result, [])
 
+    def test_delete_document(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.add_chunks(OTHER, user_id=1, doc_id=2)
+        search.delete_document(user_id=1, doc_id=1)
+        results = search.search("рекурсия", user_id=1)
+        self.assertEqual([r["source"] for r in results], ["sort.pdf"])
+
+    def test_delete_does_not_touch_other_user(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.add_chunks(LECTURE, user_id=2, doc_id=1)
+        search.delete_document(user_id=1, doc_id=1)
+        self.assertEqual(search._get_collection(2).count(), 3)
 
 if __name__ == "__main__":
     unittest.main()
