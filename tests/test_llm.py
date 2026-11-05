@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 import httpx
-from openai import APIConnectionError
+from openai import APIConnectionError, APIStatusError
 
 import llm
 
@@ -61,3 +61,32 @@ class TestCallModel(unittest.TestCase):
             llm._call_model("вопрос")
         self.assertEqual(create.call_args.kwargs["temperature"], 0)
         self.assertIn("Модель: qwen/qwen3.7-flash", logs.output[0])
+
+
+def status_error(code, message):
+    response = httpx.Response(code, request=httpx.Request("POST", "https://test"))
+    return APIStatusError(message, response=response, body=None)
+
+
+@mock.patch("llm.time.sleep")
+@mock.patch("llm._get_client")
+class TestNoCredits(unittest.TestCase):
+    def test_402_no_retries(self, get_client, sleep):
+        create = get_client.return_value.chat.completions.create
+        create.side_effect = status_error(402, "Payment Required")
+        with self.assertRaises(llm.LLMNoCreditsError):
+            llm._call_model("вопрос")
+        self.assertEqual(create.call_count, 1)  # деньги не появятся, повторять бессмысленно
+        sleep.assert_not_called()
+
+    def test_403_key_limit(self, get_client, sleep):
+        create = get_client.return_value.chat.completions.create
+        create.side_effect = status_error(403, "Key limit exceeded (total limit)")
+        with self.assertRaises(llm.LLMNoCreditsError):
+            llm._call_model("вопрос")
+
+    def test_other_403_not_hidden(self, get_client, sleep):
+        create = get_client.return_value.chat.completions.create
+        create.side_effect = status_error(403, "Forbidden")
+        with self.assertRaises(APIStatusError):
+            llm._call_model("вопрос")
