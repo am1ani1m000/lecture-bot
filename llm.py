@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 import time
-from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
+from openai import APIConnectionError,APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 import config
 
@@ -40,6 +40,15 @@ class LLMBusyError(Exception):
     """Модель недоступна после всех повторов."""
 
 
+class LLMNoCreditsError(Exception):
+    """На ключе кончились деньги или упёрлись в лимит расходов ключа."""
+
+
+def _is_no_credits(e: APIStatusError) -> bool:
+    """402: на ключе нет денег. 403 с «limit exceeded»: лимит расходов ключа."""
+    return e.status_code == 402 or (e.status_code == 403 and "limit exceeded" in e.message.lower())
+
+
 def _call_model(prompt: str) -> str:
     """Отправляет промпт модели. При 429 и таймауте повторяет с паузами 2, 5, 10 с."""
     for attempt, pause in enumerate((0, *RETRY_PAUSES)):
@@ -50,10 +59,17 @@ def _call_model(prompt: str) -> str:
             resp = _get_client().chat.completions.create(
                 model=config.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                temperature=0,  # меньше случайности: прогоны тестов можно сравнивать
             )
+            log.info("Модель: %s", resp.model)  # какая модель реально ответила
             return resp.choices[0].message.content or ""
         except (RateLimitError, APITimeoutError, APIConnectionError) as e:
             log.warning("Ошибка модели: %s", type(e).__name__)
+        except APIStatusError as e:
+            if _is_no_credits(e):
+                log.error("На ключе кончились деньги или лимит расходов: %s", e.status_code)
+                raise LLMNoCreditsError("На ключе модели закончились деньги") from e
+            raise
     raise LLMBusyError("Модель сейчас перегружена, попробуй через минуту")
 
 SUMMARY_PART_CHARS = 12_000  # сколько символов лекции отправляем модели за один запрос
