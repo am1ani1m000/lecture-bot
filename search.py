@@ -85,3 +85,11 @@ def search(question: str, user_id: int, k: int = 4,
             "score": round(1 - distance, 3),
         })
     return found
+
+
+
+def delete_document(user_id: int, doc_id: int) -> None:
+    """Удаляет все куски документа из коллекции пользователя."""
+    collection = _get_collection(user_id)
+    collection.delete(where={"doc_id": doc_id})
+    logger.info("Удалены куски doc_id=%s, user=%s", doc_id, user_id)
