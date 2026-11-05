@@ -52,3 +52,12 @@ class TestCallModel(unittest.TestCase):
             llm._call_model("вопрос")
         self.assertEqual(create.call_count, 4)  # 1 попытка + 3 повтора
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [2, 5, 10])
+    def test_temperature_zero_and_model_logged(self, get_client, sleep):
+        response = fake_response("ответ")
+        response.model = "qwen/qwen3.7-flash"
+        create = get_client.return_value.chat.completions.create
+        create.return_value = response
+        with self.assertLogs("llm", level="INFO") as logs:
+            llm._call_model("вопрос")
+        self.assertEqual(create.call_args.kwargs["temperature"], 0)
+        self.assertIn("Модель: qwen/qwen3.7-flash", logs.output[0])
