@@ -90,3 +90,14 @@ class TestNoCredits(unittest.TestCase):
         create.side_effect = status_error(403, "Forbidden")
         with self.assertRaises(APIStatusError):
             llm._call_model("вопрос")
+
+
+@mock.patch("llm._get_client")
+class TestReasoning(unittest.TestCase):
+    def test_off_by_default_on_when_asked(self, get_client):
+        create = get_client.return_value.chat.completions.create
+        create.return_value = fake_response("ответ")
+        llm._call_model("вопрос")
+        self.assertEqual(create.call_args.kwargs["extra_body"], llm.NO_REASONING)
+        llm._call_model("вопрос", reasoning=True)
+        self.assertIsNone(create.call_args.kwargs["extra_body"])

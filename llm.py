@@ -49,7 +49,10 @@ def _is_no_credits(e: APIStatusError) -> bool:
     return e.status_code == 402 or (e.status_code == 403 and "limit exceeded" in e.message.lower())
 
 
-def _call_model(prompt: str) -> str:
+NO_REASONING = {"reasoning": {"enabled": False}}  # параметр OpenRouter, см. DECISIONS.md (#68)
+
+
+def _call_model(prompt: str, reasoning: bool = False) -> str:
     """Отправляет промпт модели. При 429 и таймауте повторяет с паузами 2, 5, 10 с."""
     for attempt, pause in enumerate((0, *RETRY_PAUSES)):
         if pause:
@@ -60,6 +63,7 @@ def _call_model(prompt: str) -> str:
                 model=config.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,  # меньше случайности: прогоны тестов можно сравнивать
+                extra_body=None if reasoning else NO_REASONING,
             )
             log.info("Модель: %s", resp.model)  # какая модель реально ответила
             return resp.choices[0].message.content or ""
@@ -92,11 +96,11 @@ def _summarize(template: str, chunks: list[dict]) -> str:
     """Выжимка. Длинную лекцию делаем в два шага: по частям, потом сводную."""
     groups = _split_by_size(chunks, SUMMARY_PART_CHARS)
     if len(groups) == 1:
-        return _call_model(template.replace("{context}", _format_context(chunks)))
+        return _call_model(template.replace("{context}", _format_context(chunks)), reasoning=True)
     log.info("Длинная лекция: %d частей, запросов к модели: %d", len(groups), len(groups) + 1)
-    parts = [_call_model(template.replace("{context}", _format_context(g))) for g in groups]
+    parts = [_call_model(template.replace("{context}", _format_context(g)), reasoning=True) for g in groups]
     joined = "\n\n".join(f"[Часть {i}]\n{p}" for i, p in enumerate(parts, start=1))
-    return _call_model(template.replace("{context}", joined))
+    return _call_model(template.replace("{context}", joined), reasoning=True)
 
 def ask(question: str, chunks: list[dict], mode: str) -> str:
     """mode: answer / summary / cards / cheatsheet. Возвращает текст ответа модели."""
