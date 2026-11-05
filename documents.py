@@ -19,19 +19,42 @@ def load_pdf(path: str) -> list[dict]:
     return result
 
 
+
+def _cut_end(text: str, start: int, size: int, overlap: int) -> int:
+    """Конец куска: последний пробел перед start + size, чтобы не резать слово."""
+    end = start + size
+    if end >= len(text):
+        return len(text)
+    space = text.rfind(" ", start + overlap + 1, end + 1)
+    return space if space != -1 else end
+
+
+def _next_start(text: str, end: int, overlap: int) -> int:
+    """Начало следующего куска: отступаем на overlap и встаём на начало слова."""
+    start = end - overlap
+    if start == 0 or text[start - 1] == " ":
+        return start
+    space = text.find(" ", start, end)
+    return space + 1 if space != -1 else start
+
+
+
+
 def chunk_pages(pages: list[dict], size: int = 800, overlap: int = 100) -> list[dict]:
-    """Режет текст страниц на куски с перекрытием.
+    """Режет текст страниц на куски с перекрытием, не разрезая слова.
 
     Кусок не пересекает границу страницы, поэтому источник всегда точный.
+    Слово режется только если оно длиннее куска.
     """
     if not 0 <= overlap < size:
         raise ValueError("overlap должен быть от 0 и меньше size")
-    step = size - overlap
     chunks = []
     for page in pages:
         text = page["text"]
-        for start in range(0, len(text), step):
-            piece = text[start:start + size].strip()
+        start = 0
+        while start < len(text):
+            end = _cut_end(text, start, size, overlap)
+            piece = text[start:end].strip()
             if piece:
                 chunks.append({
                     "text": piece,
@@ -39,6 +62,7 @@ def chunk_pages(pages: list[dict], size: int = 800, overlap: int = 100) -> list[
                     "page": page["page"],
                     "chunk_id": str(len(chunks)),
                 })
-            if start + size >= len(text):
+            if end >= len(text):
                 break
+            start = _next_start(text, end, overlap)
     return chunks
