@@ -40,6 +40,15 @@ def split_message(text: str, limit: int = TG_MESSAGE_LIMIT) -> list[str]:
         parts.append(current)
     return parts
 
+
+def pages_word(n: int) -> str:
+    """Склоняет слово «страница» под число: 1 страница, 3 страницы, 5 страниц."""
+    if n % 10 == 1 and n % 100 != 11:
+        return "страница"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "страницы"
+    return "страниц"
+
 BTN_SUMMARY = "📄 Выжимка"
 BTN_DOCS = "📚 Мои лекции"
 BTN_DELETE = "🗑 Удалить лекцию"
@@ -108,7 +117,7 @@ async def handle_document(message: Message):
         os.remove(path)
         await message.answer("Не смог сохранить лекцию, попробуй позже.")
         return
-    await message.answer(f"Загружено: {len(pages)} страниц")
+    await message.answer(f"Загружено: {len(pages)} {pages_word(len(pages))}")
 
 
 @dp.message(Command("summary"))
