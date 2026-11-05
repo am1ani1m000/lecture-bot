@@ -50,7 +50,9 @@ def _call_model(prompt: str) -> str:
             resp = _get_client().chat.completions.create(
                 model=config.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                temperature=0,  # меньше случайности: прогоны тестов можно сравнивать
             )
+            log.info("Модель: %s", resp.model)  # какая модель реально ответила
             return resp.choices[0].message.content or ""
         except (RateLimitError, APITimeoutError, APIConnectionError) as e:
             log.warning("Ошибка модели: %s", type(e).__name__)
