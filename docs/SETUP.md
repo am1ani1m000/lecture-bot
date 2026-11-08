@@ -69,9 +69,9 @@ nano .env                   # или code .env
 ```
 Заполнить:
 - `BOT_TOKEN`: токен тестового бота, его присылает участник 2 в личку.
-- `LLM_API_KEY`: свой бесплатный ключ с openrouter.ai (Settings, Keys, Create Key).
+- `LLM_API_KEY`: свой бесплатный ключ с openrouter.ai (Settings, Keys, Create Key). На ключе должен быть баланс и лимит расходов выше 0$
 - `LLM_BASE_URL=https://openrouter.ai/api/v1`
-- `LLM_MODEL=openrouter/free`
+- `LLM_MODEL=qwen/qwen3.7-flash`
 - `EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
 
 Значения пишем без кавычек и пробелов. Ключи никому не пересылаем и не вставляем в чат с ИИ.
