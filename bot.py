@@ -145,13 +145,43 @@ def format_cards(raw: str) -> str:
     return "\n\n".join(lines)
 
 
+NO_CREDITS_TEXT = "У бота закончился лимит модели, напиши админу."
+
+
 async def send_result(message: Message, kind: str) -> None:
-    """Общая логика /summary, /cards, /cheatsheet: кэш, модель, отправка."""
+    """/summary, /cards, /cheatsheet: если лекций несколько, спрашиваем какую."""
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
     if not docs:
         await message.answer("Сначала пришли PDF с лекцией.")
         return
-    doc = docs[0]
+    if len(docs) == 1:
+        await make_result(message, kind, docs[0])
+        return
+    builder = InlineKeyboardBuilder()
+    for d in docs:
+        builder.button(text=d["filename"], callback_data=f"res:{kind}:{d['doc_id']}")
+    builder.adjust(1)
+    await message.answer(
+        f"По какой лекции сделать {LABELS[kind]}?", reply_markup=builder.as_markup()
+    )
+
+
+@dp.callback_query(F.data.startswith("res:"))
+async def choose_document(callback: CallbackQuery):
+    """Выбрали лекцию кнопкой: убираем кнопки и делаем результат."""
+    kind = callback.data.split(":")[1]
+    doc = await get_own_document(callback)
+    if doc is None or kind not in LABELS:
+        await callback.message.edit_text("Лекция не найдена.")
+        await callback.answer()
+        return
+    await callback.message.edit_text(f"Лекция: {doc['filename']}")
+    await callback.answer()
+    await make_result(callback.message, kind, doc)
+
+
+async def make_result(message: Message, kind: str, doc: dict) -> None:
+    """Достаёт результат из кэша или просит модель, затем отправляет."""
     label = LABELS[kind]
     text = await asyncio.to_thread(db.get_cached, doc["doc_id"], kind)
     if text is None:
@@ -167,6 +197,9 @@ async def send_result(message: Message, kind: str) -> None:
                 format_cards(text)  # проверяем формат до записи в кэш
         except llm.LLMBusyError:
             await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+            return
+        except llm.LLMNoCreditsError:
+            await message.answer(NO_CREDITS_TEXT)
             return
         except Exception:
             logging.exception("Не удалось сделать %s", kind)
@@ -234,7 +267,7 @@ async def delete_menu(message: Message):
 
 async def get_own_document(callback: CallbackQuery) -> dict | None:
     """Достаёт doc_id из callback_data и проверяет, что документ свой."""
-    doc_id = int(callback.data.split(":")[1])
+    doc_id = int(callback.data.split(":")[-1])
     doc = await asyncio.to_thread(db.get_document, doc_id)
     if doc is None or doc["user_id"] != callback.from_user.id:
         return None
@@ -311,6 +344,9 @@ async def answer_question(message: Message):
         answer = await asyncio.to_thread(llm.ask, question, good, "answer")
     except llm.LLMBusyError:
         await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+        return
+    except llm.LLMNoCreditsError:
+        await message.answer(NO_CREDITS_TEXT)
         return
     except Exception:
         logging.exception("Не удалось ответить на вопрос")
