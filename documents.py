@@ -20,6 +20,17 @@ def load_pdf(path: str) -> list[dict]:
 
 
 
+def count_pages(path: str) -> int:
+    """Сколько всего страниц в PDF, включая страницы без текста."""
+    return len(PdfReader(path).pages)
+
+
+def skipped_pages(pages: list[dict], total: int) -> list[int]:
+    """Номера страниц без текста: их нет в результате load_pdf."""
+    have = {p["page"] for p in pages}
+    return [n for n in range(1, total + 1) if n not in have]
+
+
 def _cut_end(text: str, start: int, size: int, overlap: int) -> int:
     """Конец куска: последний пробел перед start + size, чтобы не резать слово."""
     end = start + size

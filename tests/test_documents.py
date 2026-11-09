@@ -4,7 +4,7 @@ import unittest
 
 from pypdf import PdfWriter
 
-from documents import chunk_pages, load_pdf
+from documents import chunk_pages, count_pages, load_pdf, skipped_pages
 
 TEXT = "".join(str(i % 10) for i in range(1500))
 PAGES = [
@@ -66,6 +66,17 @@ class TestLoadPdf(unittest.TestCase):
             with open(path, "wb") as f:
                 writer.write(f)
             self.assertEqual(load_pdf(path), [])
+            self.assertEqual(count_pages(path), 1)
+
+
+class TestSkippedPages(unittest.TestCase):
+    def test_finds_missing_pages_including_last(self):
+        pages = [{"text": "a", "source": "t.pdf", "page": n} for n in (1, 2, 4)]
+        self.assertEqual(skipped_pages(pages, 6), [3, 5, 6])
+
+    def test_nothing_skipped(self):
+        pages = [{"text": "a", "source": "t.pdf", "page": n} for n in (1, 2)]
+        self.assertEqual(skipped_pages(pages, 2), [])
 
 
 if __name__ == "__main__":
