@@ -1,4 +1,6 @@
 import asyncio
+import html
+import json
 import os
 import logging
 
@@ -64,13 +66,19 @@ def pages_word(n: int) -> str:
     return "страниц"
 
 BTN_SUMMARY = "📄 Выжимка"
+BTN_CARDS = "🃏 Карточки"
+BTN_CHEATSHEET = "📝 Шпаргалка"
 BTN_DOCS = "📚 Мои лекции"
 BTN_DELETE = "🗑 Удалить лекцию"
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text=BTN_SUMMARY), KeyboardButton(text=BTN_DOCS)],
-        [KeyboardButton(text=BTN_DELETE)],
+        [
+            KeyboardButton(text=BTN_SUMMARY),
+            KeyboardButton(text=BTN_CARDS),
+            KeyboardButton(text=BTN_CHEATSHEET),
+        ],
+        [KeyboardButton(text=BTN_DOCS), KeyboardButton(text=BTN_DELETE)],
     ],
     resize_keyboard=True,
 )
@@ -135,31 +143,75 @@ async def handle_document(message: Message):
     await message.answer(upload_message(pages, total))
 
 
-@dp.message(Command("summary"))
-@dp.message(F.text == BTN_SUMMARY)
-async def summary(message: Message):
+# Что делаем в каждом режиме: название для сообщения «Делаю ...»
+LABELS = {"summary": "выжимку", "cards": "карточки", "cheatsheet": "шпаргалку"}
+
+
+def format_cards(raw: str) -> str:
+    """JSON с карточками -> текст, ответ спрятан под спойлер (HTML)."""
+    cards = json.loads(raw)
+    if not isinstance(cards, list) or not cards:
+        raise ValueError("Карточек нет")
+    lines = []
+    for i, card in enumerate(cards, start=1):
+        q = html.escape(str(card["question"]))
+        a = html.escape(str(card["answer"]))
+        lines.append(f"<b>{i}. {q}</b>\n<tg-spoiler>{a}</tg-spoiler>")
+    return "\n\n".join(lines)
+
+
+async def send_result(message: Message, kind: str) -> None:
+    """Общая логика /summary, /cards, /cheatsheet: кэш, модель, отправка."""
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
     if not docs:
         await message.answer("Сначала пришли PDF с лекцией.")
         return
     doc = docs[0]
-    text = await asyncio.to_thread(db.get_cached, doc["doc_id"], "summary")
+    label = LABELS[kind]
+    text = await asyncio.to_thread(db.get_cached, doc["doc_id"], kind)
     if text is None:
-        await message.answer(f"Делаю выжимку «{doc['filename']}»...")
+        await message.answer(
+            f"Делаю {label} «{doc['filename']}»... "
+            "Для длинной лекции это может занять несколько минут."
+        )
         try:
             pages = await asyncio.to_thread(load_pdf, doc["path"])
             chunks = chunk_pages(pages)
-            text = await asyncio.to_thread(llm.ask, "", chunks, "summary")
+            text = await asyncio.to_thread(llm.ask, "", chunks, kind)
+            if kind == "cards":
+                format_cards(text)  # проверяем формат до записи в кэш
         except llm.LLMBusyError:
             await message.answer("Модель сейчас перегружена, попробуй через минуту.")
             return
         except Exception:
-            logging.exception("Не удалось сделать выжимку")
-            await message.answer("Не получилось сделать выжимку, попробуй позже.")
+            logging.exception("Не удалось сделать %s", kind)
+            await message.answer(f"Не получилось сделать {label}, попробуй позже.")
             return
-        await asyncio.to_thread(db.save_cached, doc["doc_id"], "summary", text)
+        await asyncio.to_thread(db.save_cached, doc["doc_id"], kind, text)
+    if kind == "cards":
+        for part in split_message(format_cards(text)):
+            await message.answer(part, parse_mode="HTML")
+        return
     for part in split_message(text):
         await message.answer(part)
+
+
+@dp.message(Command("summary"))
+@dp.message(F.text == BTN_SUMMARY)
+async def summary(message: Message):
+    await send_result(message, "summary")
+
+
+@dp.message(Command("cards"))
+@dp.message(F.text == BTN_CARDS)
+async def cards(message: Message):
+    await send_result(message, "cards")
+
+
+@dp.message(Command("cheatsheet"))
+@dp.message(F.text == BTN_CHEATSHEET)
+async def cheatsheet(message: Message):
+    await send_result(message, "cheatsheet")
 
 
 @dp.message(Command("docs"))
@@ -296,6 +348,8 @@ async def main():
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать и показать меню"),
         BotCommand(command="summary", description="Выжимка лекции"),
+        BotCommand(command="cards", description="Карточки для заучивания"),
+        BotCommand(command="cheatsheet", description="Шпаргалка"),
         BotCommand(command="docs", description="Мои лекции"),
         BotCommand(command="delete", description="Удалить лекцию"),
     ])
