@@ -12,7 +12,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from documents import load_pdf, chunk_pages, count_pages, skipped_pages
+from documents import load_pdf, chunk_pages, count_pages, skipped_pages, file_hash
 import db
 import search 
 import llm
@@ -94,6 +94,15 @@ async def start(message: Message):
 DATA_DIR = "data"
 
 
+def find_same_file(path: str, docs: list[dict]) -> dict | None:
+    """Ищет среди документов пользователя файл с тем же содержимым."""
+    new_hash = file_hash(path)
+    for d in docs:
+        if os.path.exists(d["path"]) and file_hash(d["path"]) == new_hash:
+            return d
+    return None
+
+
 @dp.message(F.document)
 async def handle_document(message: Message):
     doc = message.document
@@ -114,6 +123,11 @@ async def handle_document(message: Message):
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, name)
     await bot.download(doc, destination=path)
+    same = await asyncio.to_thread(find_same_file, path, docs)
+    if same is not None:
+        os.remove(path)
+        await message.answer(f"Эта лекция уже загружена как «{same['filename']}».")
+        return
     try:
         pages = await asyncio.to_thread(load_pdf, path)
         total = await asyncio.to_thread(count_pages, path)
