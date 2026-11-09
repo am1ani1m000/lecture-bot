@@ -10,7 +10,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from documents import load_pdf, chunk_pages
+from documents import load_pdf, chunk_pages, count_pages, skipped_pages
 import db
 import search 
 import llm
@@ -39,6 +39,20 @@ def split_message(text: str, limit: int = TG_MESSAGE_LIMIT) -> list[str]:
     if current:
         parts.append(current)
     return parts
+
+
+def upload_message(pages: list[dict], total: int) -> str:
+    """Итог загрузки: сколько страниц прочитано и какие пропущены."""
+    skipped = skipped_pages(pages, total)
+    if not skipped:
+        return f"Загружено: {total} {pages_word(total)}"
+    shown = ", ".join(map(str, skipped[:20]))
+    if len(skipped) > 20:
+        shown += f" и ещё {len(skipped) - 20}"
+    return (
+        f"Загружено страниц: {len(pages)} из {total}.\n"
+        f"Без текста (скан или картинка), пропущены: стр. {shown}"
+    )
 
 
 def pages_word(n: int) -> str:
@@ -94,6 +108,7 @@ async def handle_document(message: Message):
     await bot.download(doc, destination=path)
     try:
         pages = await asyncio.to_thread(load_pdf, path)
+        total = await asyncio.to_thread(count_pages, path)
     except Exception:
         logging.exception("Не удалось прочитать PDF")
         os.remove(path)
@@ -117,7 +132,7 @@ async def handle_document(message: Message):
         os.remove(path)
         await message.answer("Не смог сохранить лекцию, попробуй позже.")
         return
-    await message.answer(f"Загружено: {len(pages)} {pages_word(len(pages))}")
+    await message.answer(upload_message(pages, total))
 
 
 @dp.message(Command("summary"))
