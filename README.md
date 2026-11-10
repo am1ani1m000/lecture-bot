@@ -70,9 +70,9 @@ python bot.py
 | Переменная в `.env` | Что это |
 |---|---|
 | `BOT_TOKEN` | Токен тестового бота от [@BotFather](https://t.me/BotFather) |
-| `LLM_API_KEY` | Ключ провайдера языковой модели (сейчас [OpenRouter](https://openrouter.ai), бесплатный) |
+| `LLM_API_KEY` | Ключ провайдера языковой модели (сейчас [OpenRouter](https://openrouter.ai)) |
 | `LLM_BASE_URL` | Адрес API, по умолчанию `https://openrouter.ai/api/v1` |
-| `LLM_MODEL` | Модель, по умолчанию `openrouter/free` |
+| `LLM_MODEL` | Модель, по умолчанию `qwen/qwen3.7-flash` |
 | `EMBED_MODEL` | Модель эмбеддингов, по умолчанию `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
 
 Провайдера и модель можно сменить в `.env`, код при этом не меняется. Сам файл `.env` в репозиторий не попадает.
