@@ -83,5 +83,25 @@ class SearchTest(unittest.TestCase):
         search.delete_document(user_id=1, doc_id=1)
         self.assertEqual(search._get_collection(2).count(), 3)
 
+    def test_count_chunks_counts_only_this_doc(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.add_chunks(OTHER, user_id=1, doc_id=2)
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=1), 3)
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=2), 1)
+
+    def test_count_chunks_unknown_doc_is_zero(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=99), 0)
+
+    def test_count_chunks_after_delete_is_zero(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.delete_document(user_id=1, doc_id=1)
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=1), 0)
+
+    def test_count_chunks_other_user_is_zero(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        self.assertEqual(search.count_chunks(user_id=2, doc_id=1), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
