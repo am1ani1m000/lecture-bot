@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pypdf import PdfReader
 
@@ -77,3 +78,12 @@ def chunk_pages(pages: list[dict], size: int = 800, overlap: int = 100) -> list[
                 break
             start = _next_start(text, end, overlap)
     return chunks
+
+
+def file_hash(path: str) -> str:
+    """SHA-256 содержимого файла: одинаковые файлы дают одинаковый хэш."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
