@@ -1,5 +1,4 @@
 import asyncio
-import html
 import json
 import os
 import logging
@@ -147,26 +146,75 @@ async def handle_document(message: Message):
 LABELS = {"summary": "выжимку", "cards": "карточки", "cheatsheet": "шпаргалку"}
 
 
-def format_cards(raw: str) -> str:
-    """JSON с карточками -> текст, ответ спрятан под спойлер (HTML)."""
+def parse_cards(raw: str) -> list[dict]:
+    """JSON с карточками -> список {"question": ..., "answer": ...}."""
     cards = json.loads(raw)
     if not isinstance(cards, list) or not cards:
         raise ValueError("Карточек нет")
-    lines = []
-    for i, card in enumerate(cards, start=1):
-        q = html.escape(str(card["question"]))
-        a = html.escape(str(card["answer"]))
-        lines.append(f"<b>{i}. {q}</b>\n<tg-spoiler>{a}</tg-spoiler>")
-    return "\n\n".join(lines)
+    return [{"question": str(c["question"]), "answer": str(c["answer"])} for c in cards]
+
+
+def card_view(cards: list[dict], doc_id: int, i: int, show: bool):
+    """Текст и кнопки одной карточки. В callback_data: card:<номер>:<ответ>:<doc_id>."""
+    card = cards[i]
+    text = f"Карточка {i + 1} из {len(cards)}\n\n❓ {card['question']}"
+    builder = InlineKeyboardBuilder()
+    rows = []
+    if show:
+        text += f"\n\n💡 {card['answer']}"
+    else:
+        builder.button(text="Показать ответ", callback_data=f"card:{i}:1:{doc_id}")
+        rows.append(1)
+    nav = 0
+    if i > 0:
+        builder.button(text="◀ Назад", callback_data=f"card:{i - 1}:0:{doc_id}")
+        nav += 1
+    if i + 1 < len(cards):
+        builder.button(text="Дальше ▶", callback_data=f"card:{i + 1}:0:{doc_id}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+    builder.adjust(*rows)
+    return text, builder.as_markup()
+
+
+NO_CREDITS_TEXT = "У бота закончился лимит модели, напиши админу."
 
 
 async def send_result(message: Message, kind: str) -> None:
-    """Общая логика /summary, /cards, /cheatsheet: кэш, модель, отправка."""
+    """/summary, /cards, /cheatsheet: если лекций несколько, спрашиваем какую."""
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
     if not docs:
         await message.answer("Сначала пришли PDF с лекцией.")
         return
-    doc = docs[0]
+    if len(docs) == 1:
+        await make_result(message, kind, docs[0])
+        return
+    builder = InlineKeyboardBuilder()
+    for d in docs:
+        builder.button(text=d["filename"], callback_data=f"res:{kind}:{d['doc_id']}")
+    builder.adjust(1)
+    await message.answer(
+        f"По какой лекции сделать {LABELS[kind]}?", reply_markup=builder.as_markup()
+    )
+
+
+@dp.callback_query(F.data.startswith("res:"))
+async def choose_document(callback: CallbackQuery):
+    """Выбрали лекцию кнопкой: убираем кнопки и делаем результат."""
+    kind = callback.data.split(":")[1]
+    doc = await get_own_document(callback)
+    if doc is None or kind not in LABELS:
+        await callback.message.edit_text("Лекция не найдена.")
+        await callback.answer()
+        return
+    await callback.message.edit_text(f"Лекция: {doc['filename']}")
+    await callback.answer()
+    await make_result(callback.message, kind, doc)
+
+
+async def make_result(message: Message, kind: str, doc: dict) -> None:
+    """Достаёт результат из кэша или просит модель, затем отправляет."""
     label = LABELS[kind]
     text = await asyncio.to_thread(db.get_cached, doc["doc_id"], kind)
     if text is None:
@@ -179,9 +227,12 @@ async def send_result(message: Message, kind: str) -> None:
             chunks = chunk_pages(pages)
             text = await asyncio.to_thread(llm.ask, "", chunks, kind)
             if kind == "cards":
-                format_cards(text)  # проверяем формат до записи в кэш
+                parse_cards(text)  # проверяем формат до записи в кэш
         except llm.LLMBusyError:
             await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+            return
+        except llm.LLMNoCreditsError:
+            await message.answer(NO_CREDITS_TEXT)
             return
         except Exception:
             logging.exception("Не удалось сделать %s", kind)
@@ -189,11 +240,33 @@ async def send_result(message: Message, kind: str) -> None:
             return
         await asyncio.to_thread(db.save_cached, doc["doc_id"], kind, text)
     if kind == "cards":
-        for part in split_message(format_cards(text)):
-            await message.answer(part, parse_mode="HTML")
+        card_text, markup = card_view(parse_cards(text), doc["doc_id"], 0, False)
+        await message.answer(card_text, reply_markup=markup)
         return
     for part in split_message(text):
         await message.answer(part)
+
+
+@dp.callback_query(F.data.startswith("card:"))
+async def flip_card(callback: CallbackQuery):
+    """Показать ответ или перейти к другой карточке (то же сообщение)."""
+    _, i, show, _ = callback.data.split(":")
+    doc = await get_own_document(callback)
+    raw = None
+    if doc is not None:
+        raw = await asyncio.to_thread(db.get_cached, doc["doc_id"], "cards")
+    if raw is None:
+        await callback.message.edit_text("Карточки не найдены, нажми «Карточки» ещё раз.")
+        await callback.answer()
+        return
+    cards = parse_cards(raw)
+    i = int(i)
+    if not 0 <= i < len(cards):
+        await callback.answer()
+        return
+    text, markup = card_view(cards, doc["doc_id"], i, show == "1")
+    await callback.message.edit_text(text, reply_markup=markup)
+    await callback.answer()
 
 
 @dp.message(Command("summary"))
@@ -249,7 +322,7 @@ async def delete_menu(message: Message):
 
 async def get_own_document(callback: CallbackQuery) -> dict | None:
     """Достаёт doc_id из callback_data и проверяет, что документ свой."""
-    doc_id = int(callback.data.split(":")[1])
+    doc_id = int(callback.data.split(":")[-1])
     doc = await asyncio.to_thread(db.get_document, doc_id)
     if doc is None or doc["user_id"] != callback.from_user.id:
         return None
@@ -326,6 +399,9 @@ async def answer_question(message: Message):
         answer = await asyncio.to_thread(llm.ask, question, good, "answer")
     except llm.LLMBusyError:
         await message.answer("Модель сейчас перегружена, попробуй через минуту.")
+        return
+    except llm.LLMNoCreditsError:
+        await message.answer(NO_CREDITS_TEXT)
         return
     except Exception:
         logging.exception("Не удалось ответить на вопрос")
