@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import logging
+from pathlib import Path
 
 from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN, TOP_K, MIN_SCORE
 from aiogram import Bot, Dispatcher, F
@@ -90,20 +91,33 @@ async def start(message: Message):
     )
 
 
-DATA_DIR = "data"
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+
+
+def full_path(path: str) -> str:
+    """Путь к PDF от папки проекта. Старые записи в базе хранят путь data/..."""
+    return path if os.path.isabs(path) else str(BASE_DIR / path)
 
 
 def find_same_file(path: str, docs: list[dict]) -> dict | None:
     """Ищет среди документов пользователя файл с тем же содержимым."""
     new_hash = file_hash(path)
     for d in docs:
-        if os.path.exists(d["path"]) and file_hash(d["path"]) == new_hash:
+        old = full_path(d["path"])
+        if os.path.exists(old) and file_hash(old) == new_hash:
             return d
     return None
 
 
+# Одна лекция за раз: пачка PDF обрабатывается по очереди, а не параллельно
+upload_lock = asyncio.Lock()
+DOWNLOAD_TIMEOUT = 120  # секунд, по умолчанию в aiogram 30
+
+
 @dp.message(F.document)
 async def handle_document(message: Message):
+    """Быстрые проверки, потом загрузка в очереди."""
     doc = message.document
     name = os.path.basename(doc.file_name or "")
     if not name.lower().endswith(".pdf"):
@@ -112,21 +126,45 @@ async def handle_document(message: Message):
     if doc.file_size and doc.file_size > MAX_FILE_MB * 1024 * 1024:
         await message.answer(f"Файл больше {MAX_FILE_MB} МБ, такой я не скачаю.")
         return
+    if upload_lock.locked():
+        await message.answer(f"«{name}» в очереди, загружу после текущей лекции.")
+    async with upload_lock:
+        await process_document(message, name)
+
+
+async def process_document(message: Message, name: str) -> None:
+    """Дубликаты, скачивание, чтение, сохранение в SQLite и Chroma."""
+    doc = message.document
     user_id = message.from_user.id
     docs = await asyncio.to_thread(db.list_documents, user_id)
-    if any(d["filename"] == name for d in docs):
-        await message.answer(f"Лекция «{name}» уже загружена.")
-        return
-    await message.answer("Читаю файл...")
-    folder = os.path.join(DATA_DIR, str(user_id))
+    for d in [d for d in docs if d["filename"] == name]:
+        if not await is_ghost(user_id, d):
+            await message.answer(f"Лекция «{name}» уже загружена.")
+            return
+        await asyncio.to_thread(db.delete_document, d["doc_id"])
+        docs.remove(d)
+    await message.answer(f"Читаю «{name}»...")
+    folder = str(DATA_DIR / str(user_id))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, name)
-    await bot.download(doc, destination=path)
+    try:
+        await bot.download(doc, destination=path, timeout=DOWNLOAD_TIMEOUT)
+    except Exception:
+        logging.exception("Не удалось скачать файл %s", name)
+        if os.path.exists(path):
+            os.remove(path)
+        await message.answer("Не получилось скачать файл, пришли его ещё раз.")
+        return
     same = await asyncio.to_thread(find_same_file, path, docs)
     if same is not None:
-        os.remove(path)
-        await message.answer(f"Эта лекция уже загружена как «{same['filename']}».")
-        return
+        if not await is_ghost(user_id, same):
+            os.remove(path)
+            await message.answer(f"Эта лекция уже загружена как «{same['filename']}».")
+            return
+        await asyncio.to_thread(db.delete_document, same["doc_id"])
+        old = full_path(same["path"])
+        if old != path and os.path.exists(old):
+            os.remove(old)
     try:
         pages = await asyncio.to_thread(load_pdf, path)
         total = await asyncio.to_thread(count_pages, path)
@@ -153,7 +191,20 @@ async def handle_document(message: Message):
         os.remove(path)
         await message.answer("Не смог сохранить лекцию, попробуй позже.")
         return
-    await message.answer(upload_message(pages, total))
+    await message.answer(f"«{name}»: " + upload_message(pages, total))
+
+
+async def is_ghost(user_id: int, doc: dict) -> bool:
+    """Запись в SQLite есть, а кусков в Chroma нет: загрузка когда-то сорвалась."""
+    try:
+        count = await asyncio.to_thread(search.count_chunks, user_id, doc["doc_id"])
+    except Exception:
+        logging.exception("Не удалось посчитать куски doc_id=%s", doc["doc_id"])
+        return False
+    if count == 0:
+        logging.warning("Сломанная загрузка doc_id=%s, загружаю заново", doc["doc_id"])
+        return True
+    return False
 
 
 # Что делаем в каждом режиме: название для сообщения «Делаю ...»
@@ -237,7 +288,7 @@ async def make_result(message: Message, kind: str, doc: dict) -> None:
             "Для длинной лекции это может занять несколько минут."
         )
         try:
-            pages = await asyncio.to_thread(load_pdf, doc["path"])
+            pages = await asyncio.to_thread(load_pdf, full_path(doc["path"]))
             chunks = chunk_pages(pages)
             text = await asyncio.to_thread(llm.ask, "", chunks, kind)
             if kind == "cards":
@@ -391,8 +442,9 @@ async def confirm_delete(callback: CallbackQuery):
         await callback.message.edit_text("Не получилось удалить, попробуй позже.")
         await callback.answer()
         return
-    if os.path.exists(doc["path"]):
-        await asyncio.to_thread(os.remove, doc["path"])
+    path = full_path(doc["path"])
+    if os.path.exists(path):
+        await asyncio.to_thread(os.remove, path)
     await callback.message.edit_text(f"Удалено: {doc['filename']}")
     await callback.answer()
 

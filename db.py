@@ -1,7 +1,9 @@
 """Работа с SQLite: пользователи, документы, кэш результатов."""
 import sqlite3
+from pathlib import Path
 
-DB_PATH = "bot.sqlite3"
+# Путь от папки проекта, а не от папки, откуда запустили бота
+DB_PATH = Path(__file__).resolve().parent / "bot.sqlite3"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
