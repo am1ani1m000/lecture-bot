@@ -1,9 +1,15 @@
 """Показывает, какие лекции и сколько кусков лежат в Chroma."""
+import sys
 from collections import Counter
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import chromadb
 
-client = chromadb.PersistentClient(path="chroma_db")
+from search import CHROMA_PATH
+
+client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 
 for item in client.list_collections():
     # в новых версиях chromadb тут строка, в старых — объект коллекции

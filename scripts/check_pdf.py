@@ -1,5 +1,8 @@
 """Проверяет, что PDF читается и режется на куски (в базу ничего не пишет)."""
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from documents import chunk_pages, load_pdf
 
