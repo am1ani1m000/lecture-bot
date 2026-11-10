@@ -93,3 +93,10 @@ def delete_document(user_id: int, doc_id: int) -> None:
     collection = _get_collection(user_id)
     collection.delete(where={"doc_id": doc_id})
     logger.info("Удалены куски doc_id=%s, user=%s", doc_id, user_id)
+
+def count_chunks(user_id: int, doc_id: int) -> int:
+    """Сколько кусков документа doc_id лежит в коллекции пользователя.
+    0 значит, что в Chroma этого документа нет (например, загрузка сорвалась)."""
+    collection = _get_collection(user_id)
+    found = collection.get(where={"doc_id": doc_id}, include=[])
+    return len(found["ids"])
