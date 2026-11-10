@@ -102,6 +102,28 @@ class SearchTest(unittest.TestCase):
         search.add_chunks(LECTURE, user_id=1, doc_id=1)
         self.assertEqual(search.count_chunks(user_id=2, doc_id=1), 0)
 
+    def test_delete_user_removes_all_chunks(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.add_chunks(OTHER, user_id=1, doc_id=2)
+        search.delete_user(user_id=1)
+        self.assertEqual(search.search("рекурсия", user_id=1), [])
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=2), 0)
+
+    def test_delete_user_does_not_touch_other_user(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.add_chunks(OTHER, user_id=2, doc_id=2)
+        search.delete_user(user_id=1)
+        self.assertEqual(search.count_chunks(user_id=2, doc_id=2), 1)
+
+    def test_delete_user_without_collection(self):
+        search.delete_user(user_id=12345)  # не должно упасть
+
+    def test_upload_after_delete_user(self):
+        search.add_chunks(LECTURE, user_id=1, doc_id=1)
+        search.delete_user(user_id=1)
+        search.add_chunks(OTHER, user_id=1, doc_id=2)
+        self.assertEqual(search.count_chunks(user_id=1, doc_id=2), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
