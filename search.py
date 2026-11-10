@@ -87,12 +87,25 @@ def search(question: str, user_id: int, k: int = 4,
     return found
 
 
-
 def delete_document(user_id: int, doc_id: int) -> None:
     """Удаляет все куски документа из коллекции пользователя."""
     collection = _get_collection(user_id)
     collection.delete(where={"doc_id": doc_id})
     logger.info("Удалены куски doc_id=%s, user=%s", doc_id, user_id)
+
+
+def delete_user(user_id: int) -> None:
+    """Удаляет все куски пользователя: коллекцию user_<id> целиком.
+    Если коллекции нет, ничего не делает."""
+    client = _get_client()
+    name = f"user_{user_id}"
+    existing = [c if isinstance(c, str) else c.name for c in client.list_collections()]
+    if name not in existing:
+        logger.info("Коллекции %s нет, удалять нечего", name)
+        return
+    client.delete_collection(name)
+    logger.info("Удалена коллекция %s", name)
+
 
 def count_chunks(user_id: int, doc_id: int) -> int:
     """Сколько кусков документа doc_id лежит в коллекции пользователя.
