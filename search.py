@@ -5,6 +5,8 @@ from pathlib import Path
 import chromadb
 
 import llm
+from config import SEARCH_EF
+
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,8 @@ CHROMA_PATH = Path(__file__).resolve().parent / "chroma_db"
 
 
 _client = None  # создаётся при первом обращении
+
+_ready: set[int] = set()  # коллекции, которым уже выставили ef_search
 
 def _get_client():
     """Создаёт клиента Chroma один раз, при первом вызове."""
@@ -24,10 +28,15 @@ def _get_client():
 
 def _get_collection(user_id: int):
     """Возвращает коллекцию пользователя, при первом обращении создаёт её."""
-    return _get_client().get_or_create_collection(
+    collection = _get_client().get_or_create_collection(
         name=f"user_{user_id}",
-        configuration={"hnsw": {"space": "cosine"}},
+        configuration={"hnsw": {"space": "cosine", "ef_search": SEARCH_EF}},
     )
+    if user_id not in _ready:
+        # старые коллекции создавались с ef_search=100, поднимаем один раз
+        collection.modify(configuration={"hnsw": {"ef_search": SEARCH_EF}})
+        _ready.add(user_id)
+    return collection
 
 
 def add_chunks(chunks: list[dict], user_id: int, doc_id: int) -> None:
