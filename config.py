@@ -12,6 +12,7 @@ EMBED_MODEL = os.getenv("EMBED_MODEL") or "sentence-transformers/paraphrase-mult
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 TOP_K = 4
+SEARCH_EF = 500
 # Минимальное косинусное сходство лучшего куска (больше = ближе).
 # Ниже порога считаем вопрос не по теме и не тратим запрос к модели.
 # Нарочно низкое: отсекает только совсем посторонние вопросы.
