@@ -2,11 +2,13 @@ import asyncio
 import json
 import os
 import logging
+import shutil
 from pathlib import Path
 
 from config import TG_MESSAGE_LIMIT, MAX_FILE_MB, BOT_TOKEN, TOP_K, MIN_SCORE
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     Message, CallbackQuery, BotCommand, ReplyKeyboardMarkup, KeyboardButton,
 )
@@ -57,13 +59,18 @@ def upload_message(pages: list[dict], total: int) -> str:
     )
 
 
+def plural(n: int, forms: tuple[str, str, str]) -> str:
+    """Склоняет слово под число: forms = (1 штука, 3 штуки, 5 штук)."""
+    if n % 10 == 1 and n % 100 != 11:
+        return forms[0]
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return forms[1]
+    return forms[2]
+
+
 def pages_word(n: int) -> str:
     """Склоняет слово «страница» под число: 1 страница, 3 страницы, 5 страниц."""
-    if n % 10 == 1 and n % 100 != 11:
-        return "страница"
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return "страницы"
-    return "страниц"
+    return plural(n, ("страница", "страницы", "страниц"))
 
 BTN_SUMMARY = "📄 Выжимка"
 BTN_CARDS = "🃏 Карточки"
@@ -375,26 +382,42 @@ async def show_docs(message: Message):
     await message.answer("Твои лекции:\n" + "\n".join(lines))
 
 
-def delete_list_keyboard(docs: list[dict]):
-    """Кнопка на каждый документ, в callback_data только doc_id."""
+DELETE_PROMPT = "Какие лекции удалить? Нажми, чтобы отметить."
+
+
+def delete_list_keyboard(docs: list[dict], selected: list[int]):
+    """Лекции-переключатели ☐/☑️ и кнопки действий. В callback_data только doc_id."""
     builder = InlineKeyboardBuilder()
     for d in docs:
-        builder.button(text=f"🗑 {d['filename']}", callback_data=f"del:{d['doc_id']}")
+        mark = "☑️" if d["doc_id"] in selected else "☐"
+        builder.button(text=f"{mark} {d['filename']}", callback_data=f"pick:{d['doc_id']}")
+    if selected:
+        builder.button(text=f"🗑 Удалить выбранные ({len(selected)})", callback_data="delsel")
+    builder.button(text="🗑 Удалить все", callback_data="delall")
+    builder.button(text="Отмена", callback_data="cancel")
     builder.adjust(1)
     return builder.as_markup()
 
 
+async def get_selection(user_id: int, state: FSMContext) -> tuple[list[dict], list[int]]:
+    """Лекции пользователя и отмеченные doc_id (только те, что ещё существуют)."""
+    docs = await asyncio.to_thread(db.list_documents, user_id)
+    ids = {d["doc_id"] for d in docs}
+    selected = [i for i in (await state.get_data()).get("selected", []) if i in ids]
+    return docs, selected
+
+
 @dp.message(Command("delete"))
 @dp.message(F.text == BTN_DELETE)
-async def delete_menu(message: Message):
-    """Показывает список лекций для удаления."""
+async def delete_menu(message: Message, state: FSMContext):
+    """Показывает список лекций, отметки пока пустые."""
     docs = await asyncio.to_thread(db.list_documents, message.from_user.id)
     if not docs:
         await message.answer("Загруженных лекций нет")
         return
-    await message.answer(
-        "Какую лекцию удалить?", reply_markup=delete_list_keyboard(docs)
-    )
+    await state.update_data(selected=[])
+    await message.answer(DELETE_PROMPT, reply_markup=delete_list_keyboard(docs, []))
+
 
 async def get_own_document(callback: CallbackQuery) -> dict | None:
     """Достаёт doc_id из callback_data и проверяет, что документ свой."""
@@ -405,58 +428,144 @@ async def get_own_document(callback: CallbackQuery) -> dict | None:
     return doc
 
 
-@dp.callback_query(F.data.startswith("del:"))
-async def ask_confirm(callback: CallbackQuery):
-    """Нажали на документ: спрашиваем подтверждение."""
+@dp.callback_query(F.data.startswith("pick:"))
+async def toggle_pick(callback: CallbackQuery, state: FSMContext):
+    """Ставит или снимает отметку и перерисовывает кнопки того же сообщения."""
     doc = await get_own_document(callback)
     if doc is None:
-        await callback.message.edit_text("Лекция не найдена.")
-        await callback.answer()
+        await callback.answer("Лекция не найдена.")
         return
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Да", callback_data=f"yes:{doc['doc_id']}")
-    builder.button(text="Отмена", callback_data="cancel")
-    await callback.message.edit_text(
-        f"Удалить {doc['filename']}?", reply_markup=builder.as_markup()
+    docs, selected = await get_selection(callback.from_user.id, state)
+    if doc["doc_id"] in selected:
+        selected.remove(doc["doc_id"])
+    else:
+        selected.append(doc["doc_id"])
+    await state.update_data(selected=selected)
+    await callback.message.edit_reply_markup(
+        reply_markup=delete_list_keyboard(docs, selected)
     )
     await callback.answer()
 
 
-@dp.callback_query(F.data == "cancel")
-async def cancel_delete(callback: CallbackQuery):
-    """Отмена: возвращаем список лекций."""
+def confirm_keyboard(yes_text: str, yes_data: str):
+    """Две кнопки: подтвердить и вернуться к списку."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=yes_text, callback_data=yes_data)
+    builder.button(text="Отмена", callback_data="back")
+    return builder.as_markup()
+
+
+@dp.callback_query(F.data == "delsel")
+async def ask_delete_selected(callback: CallbackQuery, state: FSMContext):
+    """Спрашиваем подтверждение со списком имён отмеченных лекций."""
+    docs, selected = await get_selection(callback.from_user.id, state)
+    chosen = [d for d in docs if d["doc_id"] in selected]
+    if not chosen:
+        await callback.answer("Ничего не отмечено.")
+        return
+    n = len(chosen)
+    names = ", ".join(d["filename"] for d in chosen)
+    word = plural(n, ("лекцию", "лекции", "лекций"))
+    await callback.message.edit_text(
+        f"Удалить {n} {word}: {names}?", reply_markup=confirm_keyboard("Да", "yessel")
+    )
+    await callback.answer()
+
+
+async def delete_documents(user_id: int, docs: list[dict]) -> list[str]:
+    """Удаляет лекции: куски в Chroma, запись в SQLite, PDF.
+    Если одна не удалилась, продолжает с остальными. Возвращает имена неудавшихся."""
+    failed = []
+    for doc in docs:
+        try:
+            await asyncio.to_thread(search.delete_document, user_id, doc["doc_id"])
+            await asyncio.to_thread(db.delete_document, doc["doc_id"])
+        except Exception:
+            logging.exception("Не удалось удалить doc_id=%s", doc["doc_id"])
+            failed.append(doc["filename"])
+            continue
+        path = full_path(doc["path"])
+        try:
+            if os.path.exists(path):
+                await asyncio.to_thread(os.remove, path)
+        except OSError:
+            logging.exception("Не удалось удалить файл %s", path)
+    return failed
+
+
+@dp.callback_query(F.data == "yessel")
+async def delete_selected(callback: CallbackQuery, state: FSMContext):
+    """Подтвердили: удаляем отмеченные, но не посреди загрузки."""
+    await callback.answer()
+    async with upload_lock:
+        docs, selected = await get_selection(callback.from_user.id, state)
+        chosen = [d for d in docs if d["doc_id"] in selected]
+        failed = await delete_documents(callback.from_user.id, chosen)
+    await state.clear()
+    text = f"Удалено лекций: {len(chosen) - len(failed)}"
+    if failed:
+        text += "\nНе получилось удалить: " + ", ".join(failed)
+    await callback.message.edit_text(text)
+
+
+@dp.callback_query(F.data == "delall")
+async def ask_delete_all(callback: CallbackQuery):
+    """Спрашиваем подтверждение на удаление всех лекций."""
     docs = await asyncio.to_thread(db.list_documents, callback.from_user.id)
+    if not docs:
+        await callback.message.edit_text("Загруженных лекций нет")
+        await callback.answer()
+        return
+    await callback.message.edit_text(
+        f"Удалить все лекции ({len(docs)} шт.)? "
+        "Выжимки, карточки и шпаргалки тоже удалятся.",
+        reply_markup=confirm_keyboard("Да, удалить всё", "yesall"),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "yesall")
+async def delete_all(callback: CallbackQuery, state: FSMContext):
+    """Порядок: Chroma, потом SQLite, потом папка с PDF.
+    Если SQLite упадёт после Chroma, останутся «призраки», их чинит is_ghost."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    async with upload_lock:
+        try:
+            docs = await asyncio.to_thread(db.list_documents, user_id)
+            await asyncio.to_thread(search.delete_user, user_id)
+            for d in docs:
+                await asyncio.to_thread(db.delete_document, d["doc_id"])
+            await asyncio.to_thread(
+                shutil.rmtree, DATA_DIR / str(user_id), ignore_errors=True
+            )
+        except Exception:
+            logging.exception("Не удалось удалить все лекции user=%s", user_id)
+            await state.clear()
+            await callback.message.edit_text("Не получилось удалить, попробуй позже.")
+            return
+    await state.clear()
+    await callback.message.edit_text(f"Удалено лекций: {len(docs)}")
+
+
+@dp.callback_query(F.data == "back")
+async def back_to_list(callback: CallbackQuery, state: FSMContext):
+    """Отмена в подтверждении: возвращаем список, отметки сохраняются."""
+    docs, selected = await get_selection(callback.from_user.id, state)
     if docs:
         await callback.message.edit_text(
-            "Какую лекцию удалить?", reply_markup=delete_list_keyboard(docs)
+            DELETE_PROMPT, reply_markup=delete_list_keyboard(docs, selected)
         )
     else:
         await callback.message.edit_text("Загруженных лекций нет")
     await callback.answer()
 
 
-@dp.callback_query(F.data.startswith("yes:"))
-async def confirm_delete(callback: CallbackQuery):
-    """Подтвердили: удаляем куски в Chroma, запись в базе и PDF."""
-    doc = await get_own_document(callback)
-    if doc is None:
-        await callback.message.edit_text("Лекция не найдена.")
-        await callback.answer()
-        return
-    try:
-        await asyncio.to_thread(
-            search.delete_document, callback.from_user.id, doc["doc_id"]
-        )
-        await asyncio.to_thread(db.delete_document, doc["doc_id"])
-    except Exception:
-        logging.exception("Не удалось удалить документ")
-        await callback.message.edit_text("Не получилось удалить, попробуй позже.")
-        await callback.answer()
-        return
-    path = full_path(doc["path"])
-    if os.path.exists(path):
-        await asyncio.to_thread(os.remove, path)
-    await callback.message.edit_text(f"Удалено: {doc['filename']}")
+@dp.callback_query(F.data == "cancel")
+async def cancel_delete(callback: CallbackQuery, state: FSMContext):
+    """Отмена в списке: закрываем меню, отметки сбрасываем."""
+    await state.clear()
+    await callback.message.edit_text("Удаление отменено.")
     await callback.answer()
 
 
