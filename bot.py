@@ -141,7 +141,7 @@ async def process_document(message: Message, name: str) -> None:
         if not await is_ghost(user_id, d):
             await message.answer(f"Лекция «{name}» уже загружена.")
             return
-        await asyncio.to_thread(db.delete_document, d["doc_id"])
+        await drop_ghost(user_id, d)
         docs.remove(d)
     await message.answer(f"Читаю «{name}»...")
     folder = str(DATA_DIR / str(user_id))
@@ -161,7 +161,7 @@ async def process_document(message: Message, name: str) -> None:
             os.remove(path)
             await message.answer(f"Эта лекция уже загружена как «{same['filename']}».")
             return
-        await asyncio.to_thread(db.delete_document, same["doc_id"])
+        await drop_ghost(user_id, same)
         old = full_path(same["path"])
         if old != path and os.path.exists(old):
             os.remove(old)
@@ -195,16 +195,27 @@ async def process_document(message: Message, name: str) -> None:
 
 
 async def is_ghost(user_id: int, doc: dict) -> bool:
-    """Запись в SQLite есть, а кусков в Chroma нет: загрузка когда-то сорвалась."""
+    """Загрузка когда-то сорвалась: в Chroma кусков меньше, чем записано в SQLite.
+    У старых записей без числа кусков проверяем только, что кусков нет совсем."""
     try:
         count = await asyncio.to_thread(search.count_chunks, user_id, doc["doc_id"])
     except Exception:
         logging.exception("Не удалось посчитать куски doc_id=%s", doc["doc_id"])
         return False
-    if count == 0:
-        logging.warning("Сломанная загрузка doc_id=%s, загружаю заново", doc["doc_id"])
-        return True
-    return False
+    expected = doc.get("chunks")
+    broken = count == 0 if not expected else count < expected
+    if broken:
+        logging.warning(
+            "Сломанная загрузка doc_id=%s: ожидалось кусков %s, в Chroma %s, загружаю заново",
+            doc["doc_id"], expected, count,
+        )
+    return broken
+
+
+async def drop_ghost(user_id: int, doc: dict) -> None:
+    """Убирает сломанную лекцию: оставшиеся куски в Chroma и запись в SQLite."""
+    await asyncio.to_thread(search.delete_document, user_id, doc["doc_id"])
+    await asyncio.to_thread(db.delete_document, doc["doc_id"])
 
 
 # Что делаем в каждом режиме: название для сообщения «Делаю ...»
