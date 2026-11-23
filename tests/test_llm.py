@@ -101,3 +101,12 @@ class TestReasoning(unittest.TestCase):
         self.assertEqual(create.call_args.kwargs["extra_body"], llm.NO_REASONING)
         llm._call_model("вопрос", reasoning=True)
         self.assertIsNone(create.call_args.kwargs["extra_body"])
+
+
+class TestWarmup(unittest.TestCase):
+    @mock.patch("llm._get_embed_model")
+    def test_loads_model_and_logs_time(self, get_model):
+        with self.assertLogs("llm", level="INFO") as logs:
+            llm.warmup()
+        get_model.assert_called_once()
+        self.assertIn("Модель эмбеддингов готова", logs.output[-1])

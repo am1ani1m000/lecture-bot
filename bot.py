@@ -607,6 +607,7 @@ async def answer_question(message: Message):
 async def main():
     logging.basicConfig(level=logging.INFO)
     db.init_db()
+    await asyncio.to_thread(llm.warmup)  # модель эмбеддингов до приёма сообщений
     await bot.set_my_commands([
         BotCommand(command="start", description="Начать и показать меню"),
         BotCommand(command="summary", description="Выжимка лекции"),
