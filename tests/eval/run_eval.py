@@ -19,10 +19,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-import config  # noqa: E402
-import db  # noqa: E402
-import llm  # noqa: E402
-import search  # noqa: E402
+import config  
+import db  
+import llm  
+import search  
 
 EVAL_DIR = ROOT / "tests" / "eval"
 QUESTIONS = EVAL_DIR / "questions.csv"
