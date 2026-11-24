@@ -141,6 +141,13 @@ def _get_embed_model():
     return _embed_model
 
 
+def warmup() -> None:
+    """Загружает модель эмбеддингов заранее: при старте бота, а не на первой лекции."""
+    start = time.perf_counter()
+    _get_embed_model()
+    log.info("Модель эмбеддингов готова за %.1f с", time.perf_counter() - start)
+
+
 def embed(texts: list[str]) -> list[list[float]]:
     """Возвращает нормализованные векторы для списка текстов (локальная модель)."""
     if not texts:
